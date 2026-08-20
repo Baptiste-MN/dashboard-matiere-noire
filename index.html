@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Matière Noire · Rentabilité</title>
+<style>
+:root{
+  --paper:#F7F7F5; --ink:#14161A; --ink2:#5C6169; --ink3:#8C9199;
+  --rule:#DDDEDA; --rule2:#EDEEEA; --card:#FFFFFF;
+  --pos:#2F6F4F; --warn:#B4711E; --neg:#A63A2B; --idle:#8C9199;
+  --band:#F1F1EE;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --sans:"Helvetica Neue",Inter,system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.45}
+button,input,select{font:inherit;color:inherit}
+
+header{position:sticky;top:0;z-index:30;background:var(--paper);border-bottom:1px solid var(--rule);
+  padding:13px 20px;display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+h1{margin:0;font-size:14px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;white-space:nowrap}
+.sub{font-family:var(--mono);font-size:11px;color:var(--ink3)}
+.spacer{flex:1}
+.btn{border:1px solid var(--rule);background:var(--card);border-radius:3px;padding:5px 11px;cursor:pointer;font-size:13px}
+.btn:hover{border-color:var(--ink3)}
+.btn.p{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+input,select{border:1px solid var(--rule);border-radius:3px;padding:5px 8px;background:var(--card)}
+input:focus,select:focus{outline:none;border-color:var(--ink)}
+
+#bar{font-family:var(--mono);font-size:11px;padding:6px 20px;border-bottom:1px solid var(--rule);
+  display:flex;gap:9px;align-items:center;background:#FFFDF6}
+#bar.ok{background:#F2F7F3} #bar.err{background:#FCF3F1}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--idle)}
+.dot.ok{background:var(--pos)} .dot.err{background:var(--neg)}
+
+main{padding:20px;max-width:1400px}
+h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink2);margin:22px 0 11px;font-weight:600}
+h2:first-child{margin-top:0}
+.hint{font-size:12px;color:var(--ink2);margin:-4px 0 14px}
+
+.kpi{display:flex;gap:30px;flex-wrap:wrap;margin-bottom:20px;font-family:var(--mono);font-size:10px;
+  letter-spacing:.07em;text-transform:uppercase;color:var(--ink3)}
+.kpi span{display:block;font-size:23px;color:var(--ink);letter-spacing:-.02em;margin-top:2px}
+.kpi .pos{color:var(--pos)} .kpi .neg{color:var(--neg)} .kpi .warn{color:var(--warn)}
+
+.card{background:var(--card);border:1px solid var(--rule);border-radius:4px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);text-align:left;
+  font-weight:500;padding:7px 10px;border-bottom:1px solid var(--rule);white-space:nowrap;
+  position:sticky;top:0;background:var(--card);z-index:2}
+td{padding:6px 10px;border-bottom:1px solid var(--rule2);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+td.n,th.n{font-family:var(--mono);text-align:right;white-space:nowrap}
+tbody tr.clik{cursor:pointer}
+tbody tr.clik:hover{background:var(--rule2)}
+.pos{color:var(--pos)} .neg{color:var(--neg)} .warn{color:var(--warn)} .mut{color:var(--ink3)}
+.st{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3)}
+.tag{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;
+  border:1px solid var(--rule);border-radius:2px;padding:0 5px;margin-left:5px;color:var(--ink3);
+  text-transform:uppercase;vertical-align:1px}
+.tag.a{border-color:var(--warn);color:var(--warn)}
+.tag.b{border-color:var(--pos);color:var(--pos)}
+
+.bar{height:5px;background:var(--band);border-radius:3px;overflow:hidden;min-width:64px}
+.bar i{display:block;height:100%}
+.empty{padding:36px;text-align:center;color:var(--ink3)}
+.sec{border-top:1px solid var(--rule2);padding:14px 0 0;margin-top:16px}
+.sec h3{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);margin:0 0 8px;font-weight:600}
+.back{border:0;background:none;color:var(--ink2);cursor:pointer;padding:0;font-size:13px}
+.back:hover{color:var(--ink)}
+.grid2{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(430px,1fr))}
+.note{font-size:12px;color:var(--ink2);background:#FFFDF6;border:1px solid var(--rule);
+  border-radius:3px;padding:9px 11px;margin-bottom:14px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Rentabilité</h1>
+  <span class="sub" id="me">…</span>
+  <span class="spacer"></span>
+  <input id="q" placeholder="Rechercher un projet…" style="min-width:210px">
+  <select id="fs"></select>
+  <button class="btn" id="auth">Se connecter</button>
+</header>
+
+<div id="bar"><span class="dot" id="dot"></span><span id="msg">Connexion…</span></div>
+
+<main id="view"></main>
+
+<script type="module">
+import {initializeApp} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import {getDatabase,ref,onValue,set} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';
+import {getAuth,GoogleAuthProvider,signInWithPopup,signOut,onAuthStateChanged}
+  from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+const CFG={apiKey:"AIzaSyByf4SmnGJvfkkJVFhfINXikb8I8ge5VRU",
+  authDomain:"matiere-noire-todo.firebaseapp.com",
+  databaseURL:"https://matiere-noire-todo-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId:"matiere-noire-todo",storageBucket:"matiere-noire-todo.firebasestorage.app",
+  messagingSenderId:"583651643354",appId:"1:583651643354:web:74b78c43316b9d657dfae3"};
+const ROOT='referentiel', RECUP='_recup';
+const app=initializeApp(CFG), db=getDatabase(app), auth=getAuth(app);
+
+/* ══════ règles métier — voir DECISIONS.md ══════ */
+const PHASES={concept:'Concept',esquisse:'Esquisse',dev:'Développement',followup:'Follow-up',
+  prog:'Programmation',fees:'Studio fees',logistics:'Logistique',remboursement:'Remboursement',autre:'Autre'};
+const HORS_MARGE=new Set(['remboursement']);          // transite, ni marge ni coût
+const CAPPES=new Set(['CDI','CDD','Alternance','Stage']); // 8 h/jour ; freelance et prestataire non plafonnés
+const STATUTS={actif:'Actif',livre:'Livré',lead:'Lead',annule:'Annulé',a_classer:'À classer',interne:'Interne'};
+
+let P={},PE=[],T={},PRIVE={},user=null,sel=null,fq='',fs='actif';
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const eur=n=>(n==null||isNaN(n))?'—':Math.round(n).toLocaleString('fr-FR')+' €';
+const nb=(n,d=1)=>(n==null||isNaN(n))?'—':Number(n).toLocaleString('fr-FR',{maximumFractionDigits:d});
+const pct=n=>(n==null||!isFinite(n))?'—':(n>0?'':'')+Math.round(n)+' %';
+function status(t,k){$('#bar').className=k||'';$('#dot').className='dot '+(k||'');$('#msg').textContent=t;}
+const cls=n=>n==null?'':n<0?'neg':n<30?'warn':'pos';
+
+/* ══════ calculs ══════ */
+const pers=id=>PE.find(p=>p.id===id);
+function cjmAt(id,iso){
+  const h=((PRIVE.cjm||{})[id]||[]).filter(c=>c.debut&&c.valeur!=null).sort((a,b)=>a.debut<b.debut?-1:1);
+  let v=null; for(const c of h) if(c.debut<=iso) v=c.valeur;
+  return v;
+}
+function contratAt(p,iso){
+  const per=(p.periodes||[]).find(x=>(!x.debut||x.debut<=iso)&&(!x.fin||x.fin>=iso));
+  return per?per.contrat:((p.periodes||[])[0]||{}).contrat||'CDI';
+}
+const dTotal=d=>(d.lignes||[]).reduce((s,l)=>s+(Number(l.montant)||0),0);
+function caSigne(pid){
+  const d=(PRIVE.devis||{})[pid]||{};
+  // Le TOTAL du tableau de bord fait foi : les projets anciens ont peu de lignes,
+  // c'est normal et il ne faut pas chercher a les completer.
+  if(d.caVendu) return d.caVendu;
+  const list=(d.devis||[]).filter(x=>x.signe!==false);
+  const brut=list.reduce((s,x)=>s+(x.lignes||[]).reduce((a,l)=>
+    a+(HORS_MARGE.has(l.phase)?0:(Number(l.montant)||0)),0),0);
+  return brut-(Number(d.remise)||0);
+}
+/* densite de detail : sert a signaler, jamais a corriger */
+function detail(pid){
+  const d=(PRIVE.devis||{})[pid]||{};
+  const n=(d.devis||[]).reduce((s,x)=>s+(x.lignes||[]).length,0);
+  const somme=(d.devis||[]).reduce((s,x)=>s+(x.lignes||[]).reduce((a,l)=>a+(Number(l.montant)||0),0),0)-(Number(d.remise)||0);
+  const couvert=d.caVendu?somme/d.caVendu:1;
+  const ecart=d.caVendu?somme-d.caVendu:0;
+  return {n,couvert,somme,ecart,total:d.caVendu||0};
+}
+function joursVendus(pid){
+  const d=(PRIVE.devis||{})[pid]||{}; const out={};
+  (d.devis||[]).filter(x=>x.signe!==false).forEach(x=>(x.lignes||[]).forEach(l=>{
+    if(HORS_MARGE.has(l.phase))return;
+    const forf=l.forfait||l.jours==null||l.jours===0;
+    const k=l.phase||'autre';
+    out[k]=out[k]||{jours:0,montant:0,forfait:0,lignes:[]};
+    out[k].montant+=Number(l.montant)||0;
+    if(forf) out[k].forfait+=Number(l.montant)||0; else out[k].jours+=Number(l.jours)||0;
+    out[k].lignes.push(l);
+  }));
+  return out;
+}
+/* temps réel : plafond 8 h/jour pour les contrats salariés, brut conservé */
+function conso(pid){
+  const par={}; let brut=0, fact=0, cout=0;
+  Object.entries(T).forEach(([mois,gens])=>Object.entries(gens).forEach(([uid,projs])=>{
+    const jours=projs[pid]; if(!jours)return;
+    const p=pers(uid); if(!p||p.categorie==='overhead')return;   // Baptiste et Sam hors marge projet
+    Object.entries(jours).forEach(([j,h])=>{
+      const iso=`${mois}-${String(j).padStart(2,'0')}`;
+      const cap=CAPPES.has(contratAt(p,iso));
+      // le plafond s'applique au total du jour, tous projets confondus
+      let totJour=0;
+      Object.values(gens[uid]).forEach(pr=>{ if(pr[j])totJour+=pr[j]; });
+      const f=cap&&totJour>8 ? h*8/totJour : h;
+      const c=cjmAt(uid,iso);
+      const k=uid;
+      par[k]=par[k]||{uid,brut:0,fact:0,cout:0,cjm:c,manquant:c==null};
+      par[k].brut+=h; par[k].fact+=f; par[k].cout+=c!=null?f/8*c:0;
+      brut+=h; fact+=f; cout+=c!=null?f/8*c:0;
+    });
+  }));
+  return {par:Object.values(par).sort((a,b)=>b.fact-a.fact),brut,fact,cout};
+}
+function manuel(pid){
+  const m=((PRIVE.direction||{})[pid])||{};
+  let cout=0,j=0;
+  Object.entries(m).forEach(([uid,jours])=>{
+    const c=cjmAt(uid,new Date().toISOString().slice(0,10));
+    j+=Number(jours)||0; cout+=(Number(jours)||0)*(c||0);
+  });
+  return {cout,jours:j,detail:m};
+}
+function bilan(pid){
+  const ca=caSigne(pid), c=conso(pid), d=manuel(pid);
+  const dv=(PRIVE.devis||{})[pid]||{};
+  // hors fenetre du time tracking : on retombe sur le cout consolide du tableau de bord
+  const horsFenetre = c.fact/8 < 1 && (dv.coutExcel||0) > 0;
+  const cout = horsFenetre ? dv.coutExcel : c.cout+d.cout;
+  const p=P[pid]||{};
+  const marge=p.proBono?null:ca-cout;
+  // fiabilite : le time tracking ne couvre que sept. 2025 -> aout 2026
+  let fiab='ok';
+  if(ca&&c.fact/8<1&&!horsFenetre) fiab='cout-absent';
+  else if(!ca&&c.fact) fiab='ca-absent';
+  return {ca,cout,marge,tx:(p.proBono||!ca)?null:marge/ca*100,conso:c,dir:d,fiab,
+          source: horsFenetre?'tableau de bord':'time tracking'};
+}
+
+/* ══════ rendu ══════ */
+function render(){
+  if(!user){$('#view').innerHTML='<div class="empty">Connectez-vous pour accéder aux données de rentabilité.</div>';return;}
+  sel?vueProjet():vueGlobale();
+}
+function fillFiltre(){
+  $('#fs').innerHTML='<option value="">Tous les statuts</option>'+
+    Object.entries(STATUTS).map(([v,l])=>`<option value="${v}"${v===fs?' selected':''}>${l}</option>`).join('');
+}
+function vueGlobale(){
+  const rows=Object.values(P).filter(p=>p.statut!=='lead'&&p.statut!=='interne')
+    .filter(p=>!fs||p.statut===fs)
+    .filter(p=>!fq||(p.nom+' '+(p.client||'')).toLowerCase().includes(fq))
+    .map(p=>({p,b:bilan(p.id)}))
+    .filter(r=>r.b.ca||r.b.cout)
+    .sort((a,b)=>(b.b.ca||0)-(a.b.ca||0));
+
+  const fiables=rows.filter(r=>r.b.fiab==='ok');
+  const ca=fiables.reduce((s,r)=>s+r.b.ca,0);
+  const cout=fiables.reduce((s,r)=>s+r.b.cout,0);
+  const nCoutAbs=rows.filter(r=>r.b.fiab==='cout-absent').length;
+  const fact=rows.reduce((s,r)=>s+r.b.conso.fact,0);
+  const brut=rows.reduce((s,r)=>s+r.b.conso.brut,0);
+  const marge=ca-cout;
+  const sansDevis=rows.filter(r=>r.b.fiab==='ca-absent').length;
+
+  $('#view').innerHTML=`
+  <div class="kpi">
+    <div>CA signé <span style="font-size:9px">périmètre fiable</span><span>${eur(ca)}</span></div>
+    <div>Coût de production<span>${eur(cout)}</span></div>
+    <div>Marge brute<span class="${cls(ca?marge/ca*100:null)}">${eur(marge)}</span></div>
+    <div>Taux<span class="${cls(ca?marge/ca*100:null)}">${pct(ca?marge/ca*100:null)}</span></div>
+    <div>Jours consommés<span>${nb(fact/8,0)}</span></div>
+    <div>Projets comparables<span>${fiables.length} / ${rows.length}</span></div>
+  </div>
+  <div class="note"><strong>Marge brute de production</strong> — elle ne déduit ni les frais de structure
+     (loyer, licences, assurance) ni le temps de Baptiste et Sam, classés en <em>overhead</em>.
+     Ce n'est pas la rentabilité nette du studio.</div>
+  ${nCoutAbs?`<div class="note"><strong>${nCoutAbs} projets sont vendus mais sans temps consommé</strong>
+     — livrés avant septembre 2025, hors de la fenêtre du time tracking. Ils sont exclus des totaux
+     ci-dessus pour ne pas gonfler artificiellement la marge, et signalés en orange.</div>`:''}
+  ${sansDevis?`<div class="note"><strong>${sansDevis} projets ont du temps consommé mais aucun devis.</strong>
+     Ils sont également exclus des totaux. L'import Furious les complétera.</div>`:''}
+  ${brut>fact?`<div class="note">Heures saisies : <strong>${nb(brut,0)} h</strong> · retenues pour la
+     rentabilité après plafonnement à 8 h/jour : <strong>${nb(fact,0)} h</strong>.
+     L'écart de ${nb(brut-fact,0)} h est de la charge réelle non facturée.</div>`:''}
+  ${(()=>{
+    const ec=rows.map(r=>({r,d:detail(r.p.id)}))
+      .filter(x=>x.d.n>0&&Math.abs(x.d.ecart)>1)
+      .sort((a,b)=>Math.abs(b.d.ecart)-Math.abs(a.d.ecart));
+    if(!ec.length) return '';
+    const som=ec.reduce((s,x)=>s+Math.abs(x.d.ecart),0);
+    return `<h2>Contrôle — somme des lignes ≠ total</h2>
+    <p class="hint">${ec.length} projets sur ${rows.length}, ${eur(som)} d'écart cumulé.
+      Le total fait foi ; ces écarts signalent des lignes manquantes ou en trop, à vérifier dans le tableau de bord.</p>
+    <div class="card" style="margin-bottom:22px"><table>
+      <thead><tr><th>Projet</th><th class="n">Lignes</th><th class="n">Somme</th><th class="n">Total</th><th class="n">Écart</th><th class="n">Couverture</th></tr></thead>
+      <tbody>${ec.map(({r,d})=>`<tr class="clik" data-id="${esc(r.p.id)}">
+        <td>${esc(r.p.nom)}</td><td class="n mut">${d.n}</td>
+        <td class="n">${eur(d.somme)}</td><td class="n">${eur(d.total)}</td>
+        <td class="n ${d.ecart<0?'warn':'neg'}">${d.ecart>0?'+':''}${eur(d.ecart)}</td>
+        <td class="n ${d.couvert<0.5?'warn':'mut'}">${Math.round(d.couvert*100)} %</td></tr>`).join('')}
+      </tbody></table></div>`;})()}
+  <h2>Projets</h2>
+  <div class="card"><table>
+    <thead><tr><th>Projet</th><th>Client</th><th>Statut</th>
+      <th class="n">CA signé</th><th class="n">Coût</th><th class="n">Marge</th>
+      <th class="n">Taux</th><th style="width:90px">&nbsp;</th><th class="n">Jours</th></tr></thead>
+    <tbody>${rows.map(({p,b})=>`
+      <tr class="clik" data-id="${esc(p.id)}">
+        <td>${esc(p.nom)}${p.proBono?'<span class="tag">pro bono</span>':''}${
+   b.fiab==='ca-absent'?'<span class="tag a">sans devis</span>':
+   b.fiab==='cout-absent'?'<span class="tag a">coût hors période</span>':
+   b.source==='tableau de bord'?'<span class="tag">coût consolidé</span>':''}${
+   (()=>{const x=detail(p.id);return (x.n&&x.couvert<0.9)?'<span class="tag">détail partiel</span>':'';})()}</td>
+        <td class="mut">${esc(p.client||'—')}</td>
+        <td class="st">${esc(STATUTS[p.statut]||p.statut)}</td>
+        <td class="n">${b.ca?eur(b.ca):'—'}</td>
+        <td class="n">${eur(b.cout)}</td>
+        <td class="n ${cls(b.tx)}">${b.marge==null?'—':eur(b.marge)}</td>
+        <td class="n ${b.fiab==='ok'?cls(b.tx):'mut'}">${b.fiab==='ok'?pct(b.tx):'—'}</td>
+        <td>${(b.tx==null||b.fiab!=='ok')?'':`<div class="bar"><i style="width:${Math.max(0,Math.min(100,b.tx))}%;background:var(--${b.tx<0?'neg':b.tx<30?'warn':'pos'})"></i></div>`}</td>
+        <td class="n">${nb(b.conso.fact/8)}</td>
+      </tr>`).join('')||'<tr><td colspan="9" class="empty">Aucun projet.</td></tr>'}
+    </tbody></table></div>`;
+  document.querySelectorAll('[data-id]').forEach(tr=>tr.onclick=()=>{sel=tr.dataset.id;render();window.scrollTo(0,0);});
+}
+
+function vueProjet(){
+  const p=P[sel]; if(!p){sel=null;return render();}
+  const b=bilan(sel), vend=joursVendus(sel), dv=(PRIVE.devis||{})[sel]||{};
+  const phases=[...new Set([...Object.keys(vend)])];
+  const jv=Object.values(vend).reduce((s,x)=>s+x.jours,0);
+
+  $('#view').innerHTML=`
+  <button class="back" id="back">← Tous les projets</button>
+  <h2 style="margin-top:12px">${esc(p.nom)}${p.proBono?'<span class="tag">pro bono</span>':''}</h2>
+  <p class="hint">${esc(p.client||'client non renseigné')} · ${esc(STATUTS[p.statut]||p.statut)}${p.premierMois?` · temps de ${p.premierMois} à ${p.dernierMois}`:''}</p>
+  <div class="kpi">
+    <div>CA signé<span>${b.ca?eur(b.ca):'—'}</span></div>
+    <div>Coût réel<span>${eur(b.cout)}</span><span style="font-size:9px;letter-spacing:.06em">${esc(b.source)}</span></div>
+    <div>Marge<span class="${cls(b.tx)}">${b.marge==null?'—':eur(b.marge)}</span></div>
+    <div>Taux<span class="${cls(b.tx)}">${pct(b.tx)}</span></div>
+    <div>Jours vendus<span>${jv?nb(jv):'—'}</span></div>
+    <div>Jours consommés<span>${nb(b.conso.fact/8)}</span></div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h2>Vendu par phase</h2>
+      ${phases.length?`<div class="card"><table>
+        <thead><tr><th>Phase</th><th class="n">Jours</th><th class="n">Forfait</th><th class="n">Montant</th></tr></thead>
+        <tbody>${phases.map(k=>`<tr><td>${esc(PHASES[k]||k)}</td>
+          <td class="n">${vend[k].jours?nb(vend[k].jours):'—'}</td>
+          <td class="n mut">${vend[k].forfait?eur(vend[k].forfait):'—'}</td>
+          <td class="n">${eur(vend[k].montant)}</td></tr>`).join('')}
+          ${dv.remise?`<tr><td class="mut">Remise</td><td class="n"></td><td class="n"></td><td class="n neg">−${eur(dv.remise)}</td></tr>`:''}
+        </tbody></table></div>`
+       :'<div class="card"><div class="empty">Aucun devis rattaché.</div></div>'}
+    </div>
+
+    <div>
+      <h2>Consommé par personne</h2>
+      <div class="card"><table>
+        <thead><tr><th>Personne</th><th>Profil</th><th class="n">Saisi</th><th class="n">Retenu</th><th class="n">CJM</th><th class="n">Coût</th></tr></thead>
+        <tbody>${b.conso.par.map(x=>{const pp=pers(x.uid)||{};
+          const eco=['Stagiaire','Junior'].includes(pp.profil);
+          return `<tr><td>${esc(pp.nom||x.uid)}${eco?'<span class="tag b">éco</span>':''}${pp.categorie==='prestataire'?'<span class="tag">presta</span>':''}</td>
+            <td class="mut">${esc(pp.profil||'—')}</td>
+            <td class="n">${nb(x.brut)} h</td>
+            <td class="n">${nb(x.fact)} h</td>
+            <td class="n ${x.manquant?'warn':'mut'}">${x.manquant?'manquant':eur(x.cjm)}</td>
+            <td class="n">${eur(x.cout)}</td></tr>`;}).join('')
+          ||'<tr><td colspan="6" class="empty">Aucun temps saisi.</td></tr>'}
+        </tbody></table></div>
+      <div class="sec"><h3>Direction — temps estimé</h3>
+        <p class="hint" style="margin:0 0 8px">Félix et Pierre ne saisissent pas au quotidien. Renseignez ici les jours estimés en fin de projet.</p>
+        <div class="card"><table><tbody>
+        ${PE.filter(x=>x.categorie==='direction').map(x=>`<tr>
+          <td>${esc(x.nom)}</td>
+          <td style="width:110px"><input class="n" data-dir="${esc(x.id)}" value="${(b.dir.detail||{})[x.id]??''}" placeholder="jours" style="width:100%;text-align:right"></td>
+          <td class="n mut" style="width:110px">${eur(cjmAt(x.id,new Date().toISOString().slice(0,10)))}/j</td>
+          <td class="n">${eur(((b.dir.detail||{})[x.id]||0)*(cjmAt(x.id,new Date().toISOString().slice(0,10))||0))}</td>
+        </tr>`).join('')}
+        </tbody></table></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Lignes de devis</h2>
+  <p class="hint">Le détail tel qu'il a été vendu. Les lignes au forfait ne sont pas comparées au temps consommé.</p>
+  ${(()=>{const x=detail(sel);
+     if(!x.n||Math.abs(x.ecart)<=1) return '';
+     return `<div class="note">Somme des lignes <strong>${eur(x.somme)}</strong> ·
+       total du projet <strong>${eur(x.total)}</strong> ·
+       écart <strong>${x.ecart>0?'+':''}${eur(x.ecart)}</strong> (${Math.round(x.couvert*100)} % couvert).<br>
+       <strong>Le total fait foi.</strong> Sur les projets anciens, le détail est naturellement plus pauvre et
+       n'a pas vocation à être reconstitué. Un écart important sur un projet récent mérite en revanche
+       une vérification dans le tableau de bord.</div>`;})()}
+  ${(dv.devis||[]).map(d=>`<div style="margin-bottom:14px">
+    <h3 style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:0 0 6px">
+      ${esc(d.numero||d.label||'Devis')} — ${eur(dTotal(d))}${d.signe===false?' <span class="tag a">non signé</span>':''}</h3>
+    <div class="card"><table>
+      <thead><tr><th>Phase</th><th>Ligne</th><th>Profil vendu</th><th class="n">Jours</th><th class="n">Tarif/j</th><th class="n">Montant</th></tr></thead>
+      <tbody>${(d.lignes||[]).map(l=>{const forf=l.forfait||l.jours==null||l.jours===0;
+        return `<tr><td class="mut">${esc(PHASES[l.phase]||l.phase||'—')}</td>
+        <td>${esc(l.label||l.role||'')}</td>
+        <td class="st">${esc(l.role||'—')}</td>
+        <td class="n">${forf?'<span class="mut">forfait</span>':nb(l.jours)}</td>
+        <td class="n mut">${l.tarifJour?eur(l.tarifJour):'—'}</td>
+        <td class="n">${eur(l.montant)}</td></tr>`;}).join('')}
+      </tbody></table></div></div>`).join('')
+    ||'<div class="card"><div class="empty">Aucun devis rattaché à ce projet.</div></div>'}`;
+
+  $('#back').onclick=()=>{sel=null;render();};
+  document.querySelectorAll('[data-dir]').forEach(el=>el.onchange=async()=>{
+    const v=el.value.trim().replace(',','.');
+    try{
+      await set(ref(db,`${ROOT}/prive/direction/${sel}/${el.dataset.dir}`), v===''?null:parseFloat(v)||null);
+      status('Temps direction enregistré','ok');
+    }catch(e){status('Non enregistré : '+e.message,'err');}
+  });
+}
+
+/* ══════ données ══════ */
+let n=0;
+function pull(k,fn){
+  onValue(ref(db,ROOT+'/'+k),s=>{fn(s.val());if(++n>=4)render();},
+    e=>status('Accès refusé sur "'+k+'" : '+e.message,'err'));
+}
+onAuthStateChanged(auth,u=>{
+  user=u; n=0;
+  $('#me').textContent=u?u.email:'non connecté';
+  $('#auth').textContent=u?'Se déconnecter':'Se connecter';
+  if(!u){status('Connectez-vous pour voir les données de rentabilité.','');render();return;}
+  status('Chargement…','');
+  pull('projects',v=>P=v||{});
+  pull('people',v=>PE=v||[]);
+  pull('time',v=>T=v||{});
+  pull('prive',v=>{PRIVE=v||{};status('Connecté · '+u.email,'ok');});
+});
+$('#auth').onclick=async()=>{
+  if(user){await signOut(auth);return;}
+  try{const p=new GoogleAuthProvider();p.setCustomParameters({prompt:'select_account'});await signInWithPopup(auth,p);}
+  catch(e){status(location.protocol==='file:'
+    ?'Connexion impossible en file:// — servez la page depuis un serveur ou déployez-la.'
+    :'Connexion refusée : '+e.message,'err');}
+};
+$('#q').oninput=e=>{fq=e.target.value.toLowerCase();if(!sel)render();};
+$('#fs').onchange=e=>{fs=e.target.value;sel=null;render();};
+fillFiltre();
+status('Connexion…','');
+</script>
+</body>
+</html>
