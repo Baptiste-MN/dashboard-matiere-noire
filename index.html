@@ -137,7 +137,7 @@ function caSigne(pid){
   // Le TOTAL du tableau de bord fait foi : les projets anciens ont peu de lignes,
   // c'est normal et il ne faut pas chercher a les completer.
   if(d.caVendu) return d.caVendu;
-  const list=(d.devis||[]).filter(x=>x.signe!==false);
+  const list=(d.devis||[]).filter(x=>x.signe!==false&&!x.archive);
   const brut=list.reduce((s,x)=>s+(x.lignes||[]).reduce((a,l)=>
     a+(HORS_MARGE.has(l.phase)?0:(Number(l.montant)||0)),0),0);
   return brut-(Number(d.remise)||0);
@@ -145,15 +145,16 @@ function caSigne(pid){
 /* densite de detail : sert a signaler, jamais a corriger */
 function detail(pid){
   const d=(PRIVE.devis||{})[pid]||{};
-  const n=(d.devis||[]).reduce((s,x)=>s+(x.lignes||[]).length,0);
-  const somme=(d.devis||[]).reduce((s,x)=>s+(x.lignes||[]).reduce((a,l)=>a+(Number(l.montant)||0),0),0)-(Number(d.remise)||0);
+  const act=(d.devis||[]).filter(x=>!x.archive);
+  const n=act.reduce((s,x)=>s+(x.lignes||[]).length,0);
+  const somme=act.reduce((s,x)=>s+(x.lignes||[]).reduce((a,l)=>a+(Number(l.montant)||0),0),0)-(Number(d.remise)||0);
   const couvert=d.caVendu?somme/d.caVendu:1;
   const ecart=d.caVendu?somme-d.caVendu:0;
   return {n,couvert,somme,ecart,total:d.caVendu||0};
 }
 function joursVendus(pid){
   const d=(PRIVE.devis||{})[pid]||{}; const out={};
-  (d.devis||[]).filter(x=>x.signe!==false).forEach(x=>(x.lignes||[]).forEach(l=>{
+  (d.devis||[]).filter(x=>x.signe!==false&&!x.archive).forEach(x=>(x.lignes||[]).forEach(l=>{
     if(HORS_MARGE.has(l.phase))return;
     const forf=l.forfait||l.jours==null||l.jours===0;
     const k=l.phase||'autre';
@@ -221,7 +222,7 @@ function fillFiltre(){
     Object.entries(STATUTS).map(([v,l])=>`<option value="${v}"${v===fs?' selected':''}>${l}</option>`).join('');
 }
 function vueGlobale(){
-  const rows=Object.values(P).filter(p=>p.statut!=='lead'&&p.statut!=='interne')
+  const rows=Object.values(P).filter(p=>!p.archive&&p.statut!=='lead'&&p.statut!=='interne')
     .filter(p=>!fs||p.statut===fs)
     .filter(p=>!fq||(p.nom+' '+(p.client||'')).toLowerCase().includes(fq))
     .map(p=>({p,b:bilan(p.id)}))
@@ -370,9 +371,9 @@ function vueProjet(){
        <strong>Le total fait foi.</strong> Sur les projets anciens, le détail est naturellement plus pauvre et
        n'a pas vocation à être reconstitué. Un écart important sur un projet récent mérite en revanche
        une vérification dans le tableau de bord.</div>`;})()}
-  ${(dv.devis||[]).map(d=>`<div style="margin-bottom:14px">
+  ${(dv.devis||[]).map(d=>`<div style="margin-bottom:14px${d.archive?';opacity:.5':''}">
     <h3 style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);margin:0 0 6px">
-      ${esc(d.numero||d.label||'Devis')} — ${eur(dTotal(d))}${d.signe===false?' <span class="tag a">non signé</span>':''}</h3>
+      ${esc(d.numero||d.label||'Devis')} — ${eur(dTotal(d))}${d.signe===false?' <span class="tag a">non signé</span>':''}${d.archive?' <span class="tag">archivé</span>':''}</h3>
     <div class="card"><table>
       <thead><tr><th>Phase</th><th>Ligne</th><th>Profil vendu</th><th class="n">Jours</th><th class="n">Tarif/j</th><th class="n">Montant</th></tr></thead>
       <tbody>${(d.lignes||[]).map(l=>{const forf=l.forfait||l.jours==null||l.jours===0;
