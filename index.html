@@ -187,28 +187,42 @@ function conso(pid){
   }));
   return {par:Object.values(par).sort((a,b)=>b.fact-a.fact),brut,fact,cout};
 }
-function manuel(pid){
-  const m=((PRIVE.direction||{})[pid])||{};
-  let cout=0,j=0;
-  Object.entries(m).forEach(([uid,jours])=>{
-    const c=cjmAt(uid,new Date().toISOString().slice(0,10));
-    j+=Number(jours)||0; cout+=(Number(jours)||0)*(c||0);
+/* Direction — importée de l'Excel, complétable à la main (jours × CJM du jour) */
+function coutDirection(pid){
+  const imp=((PRIVE.couts||{})[pid]||{}).direction||[];
+  const man=((PRIVE.direction||{})[pid])||{};
+  const lignes=imp.map(x=>({...x,src:'import'}));
+  let cout=imp.reduce((s,x)=>s+(Number(x.montant)||0),0), jours=imp.reduce((s,x)=>s+(Number(x.jours)||0),0);
+  Object.entries(man).forEach(([uid,j])=>{
+    const c=cjmAt(uid,new Date().toISOString().slice(0,10))||0;
+    const m=(Number(j)||0)*c;
+    if(!j) return;
+    lignes.push({id:'m-'+uid,label:(pers(uid)||{}).nom||uid,jours:Number(j),montant:m,src:'saisie'});
+    cout+=m; jours+=Number(j)||0;
   });
-  return {cout,jours:j,detail:m};
+  return {cout,jours,lignes,detail:man};
+}
+/* Prestataires, forfaits, achats — jamais dans le time tracking */
+function coutExternes(pid){
+  const l=((PRIVE.couts||{})[pid]||{}).externes||[];
+  return {cout:l.reduce((s,x)=>s+(Number(x.montant)||0),0),
+          jours:l.reduce((s,x)=>s+(Number(x.jours)||0),0),lignes:l};
 }
 function bilan(pid){
-  const ca=caSigne(pid), c=conso(pid), d=manuel(pid);
+  const ca=caSigne(pid), c=conso(pid);
+  const d=coutDirection(pid), x=coutExternes(pid);
   const dv=(PRIVE.devis||{})[pid]||{};
-  // hors fenetre du time tracking : on retombe sur le cout consolide du tableau de bord
+  // hors fenetre du time tracking : la part salariee vient du tableau de bord
   const horsFenetre = c.fact/8 < 1 && (dv.coutExcel||0) > 0;
-  const cout = horsFenetre ? dv.coutExcel : c.cout+d.cout;
+  const interne = horsFenetre ? Math.max(0,(dv.coutExcel||0)-d.cout-x.cout) : c.cout;
+  const cout = interne + d.cout + x.cout;
   const p=P[pid]||{};
   const marge=p.proBono?null:ca-cout;
   // fiabilite : le time tracking ne couvre que sept. 2025 -> aout 2026
   let fiab='ok';
   if(ca&&c.fact/8<1&&!horsFenetre) fiab='cout-absent';
   else if(!ca&&c.fact) fiab='ca-absent';
-  return {ca,cout,marge,tx:(p.proBono||!ca)?null:marge/ca*100,conso:c,dir:d,fiab,
+  return {ca,cout,interne,dir:d,ext:x,marge,tx:(p.proBono||!ca)?null:marge/ca*100,conso:c,fiab,
           source: horsFenetre?'tableau de bord':'time tracking'};
 }
 
@@ -240,8 +254,11 @@ function vueGlobale(){
 
   $('#view').innerHTML=`
   <div class="kpi">
-    <div>CA signé <span style="font-size:9px">périmètre fiable</span><span>${eur(ca)}</span></div>
-    <div>Coût de production<span>${eur(cout)}</span></div>
+    <div>CA signé<span>${eur(ca)}</span></div>
+    <div>Équipe salariée<span>${eur(fiables.reduce((s,r)=>s+r.b.interne,0))}</span></div>
+    <div>Direction<span>${eur(fiables.reduce((s,r)=>s+r.b.dir.cout,0))}</span></div>
+    <div>Prestataires &amp; achats<span>${eur(fiables.reduce((s,r)=>s+r.b.ext.cout,0))}</span></div>
+    <div>Coût total<span>${eur(cout)}</span></div>
     <div>Marge brute<span class="${cls(ca?marge/ca*100:null)}">${eur(marge)}</span></div>
     <div>Taux<span class="${cls(ca?marge/ca*100:null)}">${pct(ca?marge/ca*100:null)}</span></div>
     <div>Jours consommés<span>${nb(fact/8,0)}</span></div>
@@ -278,7 +295,7 @@ function vueGlobale(){
   <h2>Projets</h2>
   <div class="card"><table>
     <thead><tr><th>Projet</th><th>Client</th><th>Statut</th>
-      <th class="n">CA signé</th><th class="n">Coût</th><th class="n">Marge</th>
+      <th class="n">CA signé</th><th class="n">Salariés</th><th class="n">Direction</th><th class="n">Externes</th><th class="n">Coût total</th><th class="n">Marge</th>
       <th class="n">Taux</th><th style="width:90px">&nbsp;</th><th class="n">Jours</th></tr></thead>
     <tbody>${rows.map(({p,b})=>`
       <tr class="clik" data-id="${esc(p.id)}">
@@ -290,12 +307,15 @@ function vueGlobale(){
         <td class="mut">${esc(p.client||'—')}</td>
         <td class="st">${esc(STATUTS[p.statut]||p.statut)}</td>
         <td class="n">${b.ca?eur(b.ca):'—'}</td>
+        <td class="n mut">${b.interne?eur(b.interne):'—'}</td>
+        <td class="n mut">${b.dir.cout?eur(b.dir.cout):'<span class="warn">—</span>'}</td>
+        <td class="n mut">${b.ext.cout?eur(b.ext.cout):'—'}</td>
         <td class="n">${eur(b.cout)}</td>
         <td class="n ${cls(b.tx)}">${b.marge==null?'—':eur(b.marge)}</td>
         <td class="n ${b.fiab==='ok'?cls(b.tx):'mut'}">${b.fiab==='ok'?pct(b.tx):'—'}</td>
         <td>${(b.tx==null||b.fiab!=='ok')?'':`<div class="bar"><i style="width:${Math.max(0,Math.min(100,b.tx))}%;background:var(--${b.tx<0?'neg':b.tx<30?'warn':'pos'})"></i></div>`}</td>
         <td class="n">${nb(b.conso.fact/8)}</td>
-      </tr>`).join('')||'<tr><td colspan="9" class="empty">Aucun projet.</td></tr>'}
+      </tr>`).join('')||'<tr><td colspan="13" class="empty">Aucun projet.</td></tr>'}
     </tbody></table></div>`;
   document.querySelectorAll('[data-id]').forEach(tr=>tr.onclick=()=>{sel=tr.dataset.id;render();window.scrollTo(0,0);});
 }
@@ -312,7 +332,7 @@ function vueProjet(){
   <p class="hint">${esc(p.client||'client non renseigné')} · ${esc(STATUTS[p.statut]||p.statut)}${p.premierMois?` · temps de ${p.premierMois} à ${p.dernierMois}`:''}</p>
   <div class="kpi">
     <div>CA signé<span>${b.ca?eur(b.ca):'—'}</span></div>
-    <div>Coût réel<span>${eur(b.cout)}</span><span style="font-size:9px;letter-spacing:.06em">${esc(b.source)}</span></div>
+    <div>Coût total<span>${eur(b.cout)}</span></div>
     <div>Marge<span class="${cls(b.tx)}">${b.marge==null?'—':eur(b.marge)}</span></div>
     <div>Taux<span class="${cls(b.tx)}">${pct(b.tx)}</span></div>
     <div>Jours vendus<span>${jv?nb(jv):'—'}</span></div>
@@ -347,15 +367,42 @@ function vueProjet(){
             <td class="n">${eur(x.cout)}</td></tr>`;}).join('')
           ||'<tr><td colspan="6" class="empty">Aucun temps saisi.</td></tr>'}
         </tbody></table></div>
-      <div class="sec"><h3>Direction — temps estimé</h3>
-        <p class="hint" style="margin:0 0 8px">Félix et Pierre ne saisissent pas au quotidien. Renseignez ici les jours estimés en fin de projet.</p>
-        <div class="card"><table><tbody>
+      <div class="sec"><h3>Direction — Félix et Pierre</h3>
+        <p class="hint" style="margin:0 0 8px">Temps estimé en fin de projet. Les lignes importées viennent du tableau de bord ; la saisie ci-dessous s'y ajoute.</p>
+        <div class="card"><table>
+          <thead><tr><th>Ligne</th><th class="n">Jours</th><th class="n">Coût</th></tr></thead>
+          <tbody>${b.dir.lignes.map(l=>`<tr><td>${esc(l.label)}${l.src==='import'?'<span class="tag">import</span>':''}</td>
+            <td class="n">${l.jours?nb(l.jours):'—'}</td><td class="n">${eur(l.montant)}</td></tr>`).join('')
+            ||'<tr><td colspan="3" class="mut" style="padding:9px 10px">Aucun temps direction renseigné.</td></tr>'}
+          </tbody></table></div>
+        <div class="card" style="margin-top:7px"><table><tbody>
         ${PE.filter(x=>x.categorie==='direction').map(x=>`<tr>
-          <td>${esc(x.nom)}</td>
+          <td>Ajouter — ${esc(x.nom)}</td>
           <td style="width:110px"><input class="n" data-dir="${esc(x.id)}" value="${(b.dir.detail||{})[x.id]??''}" placeholder="jours" style="width:100%;text-align:right"></td>
-          <td class="n mut" style="width:110px">${eur(cjmAt(x.id,new Date().toISOString().slice(0,10)))}/j</td>
-          <td class="n">${eur(((b.dir.detail||{})[x.id]||0)*(cjmAt(x.id,new Date().toISOString().slice(0,10))||0))}</td>
+          <td class="n mut" style="width:100px">${eur(cjmAt(x.id,new Date().toISOString().slice(0,10)))}/j</td>
         </tr>`).join('')}
+        </tbody></table></div>
+      </div>
+
+      <div class="sec"><h3>Prestataires, forfaits et achats</h3>
+        <p class="hint" style="margin:0 0 8px">Jamais présents dans le time tracking. Saisis à la main dans l'administration.</p>
+        <div class="card"><table>
+          <thead><tr><th>Ligne</th><th>Type</th><th class="n">Jours</th><th class="n">Coût</th></tr></thead>
+          <tbody>${b.ext.lignes.map(l=>`<tr><td>${esc(l.label)}</td>
+            <td class="st">${esc(l.categorie||'—')}</td>
+            <td class="n">${l.jours?nb(l.jours):'—'}</td><td class="n">${eur(l.montant)}</td></tr>`).join('')
+            ||'<tr><td colspan="4" class="mut" style="padding:9px 10px">Aucun coût externe renseigné.</td></tr>'}
+          </tbody></table></div>
+      </div>
+
+      <div class="sec"><h3>Récapitulatif</h3>
+        <div class="card"><table><tbody>
+          <tr><td>Équipe salariée <span class="tag">${esc(b.source)}</span></td><td class="n">${eur(b.interne)}</td></tr>
+          <tr><td>Direction</td><td class="n">${eur(b.dir.cout)}</td></tr>
+          <tr><td>Prestataires &amp; achats</td><td class="n">${eur(b.ext.cout)}</td></tr>
+          <tr><td><strong>Coût total</strong></td><td class="n"><strong>${eur(b.cout)}</strong></td></tr>
+          <tr><td>Chiffre d'affaires signé</td><td class="n">${eur(b.ca)}</td></tr>
+          <tr><td><strong>Marge</strong></td><td class="n ${cls(b.tx)}"><strong>${b.marge==null?'—':eur(b.marge)} · ${pct(b.tx)}</strong></td></tr>
         </tbody></table></div>
       </div>
     </div>
