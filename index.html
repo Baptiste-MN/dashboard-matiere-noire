@@ -215,18 +215,24 @@ function bilan(pid){
   const ca=caSigne(pid), c=conso(pid);
   const d=coutDirection(pid), x=coutExternes(pid);
   const dv=(PRIVE.devis||{})[pid]||{};
-  // hors fenetre du time tracking : la part salariee vient du tableau de bord
-  const horsFenetre = c.fact/8 < 1 && (dv.coutExcel||0) > 0;
-  const interne = horsFenetre ? Math.max(0,(dv.coutExcel||0)-d.cout-x.cout) : c.cout;
+  const p0=P[pid]||{};
+  // deux mesures de la part salariee, jamais fusionnees en silence
+  const tt = c.cout;                                              // time tracking, jour par jour
+  const xl = Math.max(0,(dv.coutExcel||0)-d.cout-x.cout);         // tableau de bord, arbitre par Baptiste
+  const dispoTT = c.fact/8 >= 1, dispoXL = (dv.coutExcel||0) > 0;
+  const choix = p0.sourceCout && p0.sourceCout!=='auto' ? p0.sourceCout
+              : (dispoXL && !dispoTT ? 'excel' : (dispoTT ? 'tt' : (dispoXL?'excel':'tt')));
+  const interne = choix==='excel' ? xl : tt;
   const cout = interne + d.cout + x.cout;
   const p=P[pid]||{};
   const marge=p.proBono?null:ca-cout;
   // fiabilite : le time tracking ne couvre que sept. 2025 -> aout 2026
   let fiab='ok';
-  if(ca&&c.fact/8<1&&!horsFenetre) fiab='cout-absent';
+  if(ca&&!dispoTT&&!dispoXL) fiab='cout-absent';
   else if(!ca&&c.fact) fiab='ca-absent';
   return {ca,cout,interne,dir:d,ext:x,marge,tx:(p.proBono||!ca)?null:marge/ca*100,conso:c,fiab,
-          source: horsFenetre?'tableau de bord':'time tracking'};
+          tt,xl,dispoTT,dispoXL,choix, ecart:(dispoTT&&dispoXL)?tt-xl:null,
+          source: choix==='excel'?'tableau de bord':'time tracking'};
 }
 
 
@@ -363,6 +369,14 @@ function vueGlobale(){
   ${brut>fact?`<div class="note">Heures saisies : <strong>${nb(brut,0)} h</strong> · retenues pour la
      rentabilité après plafonnement à 8 h/jour : <strong>${nb(fact,0)} h</strong>.
      L'écart de ${nb(brut-fact,0)} h est de la charge réelle non facturée.</div>`:''}
+  ${(()=>{const dbl=rows.filter(r=>r.b.ecart!=null);
+     if(!dbl.length) return '';
+     const st=dbl.reduce((s,r)=>s+r.b.tt,0), sx=dbl.reduce((s,r)=>s+r.b.xl,0);
+     return `<div class="note"><strong>${dbl.length} projets ont deux mesures du coût salarié.</strong>
+       Time tracking ${eur(st)} · tableau de bord ${eur(sx)} · écart ${eur(st-sx)}
+       (${Math.round((st-sx)/sx*100)} %). Aucune des deux n'écrase l'autre : le choix se fait
+       projet par projet dans sa fiche. Par défaut, le time tracking sert dans sa fenêtre
+       (sept. 2025 → août 2026), le tableau de bord au-delà.</div>`;})()}
   ${graphe(rows)}
   ${(()=>{
     const ec=rows.map(r=>({r,d:detail(r.p.id)}))
@@ -466,7 +480,7 @@ function vueProjet(){
             ||'<tr><td colspan="3" class="mut" style="padding:9px 10px">Aucun temps direction renseigné.</td></tr>'}
           </tbody></table></div>
         <div class="card" style="margin-top:7px"><table><tbody>
-        ${PE.filter(x=>x.categorie==='direction').map(x=>`<tr>
+        ${PE.filter(x=>!x.archive&&x.categorie==='direction').map(x=>`<tr>
           <td>Ajouter — ${esc(x.nom)}</td>
           <td style="width:110px"><input class="n" data-dir="${esc(x.id)}" value="${(b.dir.detail||{})[x.id]??''}" placeholder="jours" style="width:100%;text-align:right"></td>
           <td class="n mut" style="width:100px">${eur(cjmAt(x.id,new Date().toISOString().slice(0,10)))}/j</td>
@@ -488,6 +502,13 @@ function vueProjet(){
       <div class="sec"><h3>Récapitulatif</h3>
         <div class="card"><table><tbody>
           <tr><td>Équipe salariée <span class="tag">${esc(b.source)}</span></td><td class="n">${eur(b.interne)}</td></tr>
+          ${b.ecart!=null?`<tr><td class="mut" style="padding-left:22px">
+            time tracking ${eur(b.tt)} · tableau de bord ${eur(b.xl)} · écart ${b.ecart>0?'+':''}${eur(b.ecart)}</td>
+            <td class="n mut">${b.dispoTT&&b.dispoXL?`<select data-src style="width:auto;font-size:12px">
+              <option value="auto"${!(P[sel]||{}).sourceCout||(P[sel]||{}).sourceCout==='auto'?' selected':''}>auto</option>
+              <option value="tt"${(P[sel]||{}).sourceCout==='tt'?' selected':''}>time tracking</option>
+              <option value="excel"${(P[sel]||{}).sourceCout==='excel'?' selected':''}>tableau de bord</option>
+            </select>`:''}</td></tr>`:''}
           <tr><td>Direction</td><td class="n">${eur(b.dir.cout)}</td></tr>
           <tr><td>Prestataires &amp; achats</td><td class="n">${eur(b.ext.cout)}</td></tr>
           <tr><td><strong>Coût total</strong></td><td class="n"><strong>${eur(b.cout)}</strong></td></tr>
@@ -524,6 +545,12 @@ function vueProjet(){
     ||'<div class="card"><div class="empty">Aucun devis rattaché à ce projet.</div></div>'}`;
 
   $('#back').onclick=()=>{sel=null;render();};
+  const sr=document.querySelector('[data-src]');
+  if(sr) sr.onchange=async()=>{
+    try{ await set(ref(db,`${ROOT}/projects/${sel}/sourceCout`), sr.value==='auto'?null:sr.value);
+         status('Source de coût : '+sr.value,'ok'); }
+    catch(e){ status('Non enregistré : '+e.message,'err'); }
+  };
   document.querySelectorAll('[data-dir]').forEach(el=>el.onchange=async()=>{
     const v=el.value.trim().replace(',','.');
     try{
