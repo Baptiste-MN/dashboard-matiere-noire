@@ -64,6 +64,9 @@ tbody tr.clik:hover{background:var(--rule2)}
 
 .bar{height:5px;background:var(--band);border-radius:3px;overflow:hidden;min-width:64px}
 .bar i{display:block;height:100%}
+.lg{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);
+  display:inline-flex;align-items:center;gap:5px;margin-left:14px}
+.lg i{width:14px;height:3px;border-radius:2px;display:inline-block}
 .empty{padding:36px;text-align:center;color:var(--ink3)}
 .sec{border-top:1px solid var(--rule2);padding:14px 0 0;margin-top:16px}
 .sec h3{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);margin:0 0 8px;font-weight:600}
@@ -226,6 +229,91 @@ function bilan(pid){
           source: horsFenetre?'tableau de bord':'time tracking'};
 }
 
+
+/* ══════ série temporelle ══════ */
+let GRAIN='mois';
+function isoSemaine(y,m,d){
+  const t=new Date(Date.UTC(y,m-1,d));
+  const j=(t.getUTCDay()+6)%7; t.setUTCDate(t.getUTCDate()-j+3);
+  const p=new Date(Date.UTC(t.getUTCFullYear(),0,4));
+  const n=1+Math.round(((t-p)/86400000-3+((p.getUTCDay()+6)%7))/7);
+  return `${t.getUTCFullYear()}-S${String(n).padStart(2,'0')}`;
+}
+function cle(mois,jour){
+  const [y,m]=mois.split('-').map(Number);
+  if(GRAIN==='annee') return String(y);
+  if(GRAIN==='mois')  return mois;
+  return isoSemaine(y,m,Number(jour));
+}
+/* coût salarié réel, jour par jour, réparti sur la période choisie */
+function serie(idsProjets){
+  const S={};
+  const add=(k,champ,v)=>{ (S[k]=S[k]||{cout:0,heures:0,ca:0})[champ]+=v; };
+  Object.entries(T).forEach(([mois,gens])=>Object.entries(gens).forEach(([uid,projs])=>{
+    const p=pers(uid); if(!p||p.categorie==='overhead')return;
+    Object.entries(projs).forEach(([pid,jours])=>{
+      if(idsProjets&&!idsProjets.has(pid))return;
+      Object.entries(jours).forEach(([j,hh])=>{
+        const iso=`${mois}-${String(j).padStart(2,'0')}`;
+        const cap=CAPPES.has(contratAt(p,iso));
+        let tot=0; Object.values(gens[uid]).forEach(pr=>{ if(pr[j])tot+=pr[j]; });
+        const f=cap&&tot>8 ? hh*8/tot : hh;
+        const c=cjmAt(uid,iso)||0;
+        const k=cle(mois,j);
+        add(k,'cout',f/8*c); add(k,'heures',f);
+      });
+    });
+  }));
+  /* CA rattaché à la date du devis, quand elle existe */
+  Object.entries(PRIVE.devis||{}).forEach(([pid,d])=>{
+    if(idsProjets&&!idsProjets.has(pid))return;
+    (d.devis||[]).filter(x=>x.signe!==false&&!x.archive&&x.date).forEach(x=>{
+      const [y,m,j]=x.date.split('-');
+      add(cle(`${y}-${m}`,j),'ca',(x.lignes||[]).reduce((s,l)=>s+(Number(l.montant)||0),0));
+    });
+  });
+  return Object.entries(S).sort((a,b)=>a[0]<b[0]?-1:1);
+}
+function graphe(rows){
+  const ids=new Set(rows.map(r=>r.p.id));
+  const S=serie(ids);
+  if(S.length<2) return '';
+  const W=980,H=250,PL=64,PR=18,PT=16,PB=30;
+  const maxC=Math.max(...S.map(([,v])=>v.cout))||1;
+  const maxA=Math.max(...S.map(([,v])=>v.ca))||1;
+  const max=Math.max(maxC,maxA);
+  const x=i=>PL+(W-PL-PR)*(S.length===1?0.5:i/(S.length-1));
+  const y=v=>PT+(H-PT-PB)*(1-v/max);
+  const bw=Math.max(3,(W-PL-PR)/S.length*0.52);
+  const ligne=S.map(([,v],i)=>`${i?'L':'M'}${x(i).toFixed(1)},${y(v.cout).toFixed(1)}`).join(' ');
+  const aire=`M${x(0).toFixed(1)},${(H-PB)} `+S.map(([,v],i)=>`L${x(i).toFixed(1)},${y(v.cout).toFixed(1)}`).join(' ')+` L${x(S.length-1).toFixed(1)},${H-PB} Z`;
+  const pasY=[0,.25,.5,.75,1];
+  const cum=(()=>{let a=0,b=0;return S.map(([,v])=>{a+=v.ca;b+=v.cout;return a-b;});})();
+  const maxCum=Math.max(...cum.map(Math.abs))||1;
+  const yc=v=>PT+(H-PT-PB)*(1-(v/maxCum*0.5+0.5));
+  const ligneCum=S.map((_,i)=>`${i?'L':'M'}${x(i).toFixed(1)},${yc(cum[i]).toFixed(1)}`).join(' ');
+  return `
+  <h2>Évolution</h2>
+  <div class="row" style="margin:-4px 0 10px;gap:6px">
+    ${['annee','mois','semaine'].map(g=>`<button class="btn${g===GRAIN?' p':''}" data-grain="${g}">${g==='annee'?'Année':g==='mois'?'Mois':'Semaine'}</button>`).join('')}
+    <span class="spacer"></span>
+    <span class="lg"><i style="background:var(--ink)"></i>Coût de production</span>
+    <span class="lg"><i style="background:var(--rule)"></i>CA signé</span>
+    <span class="lg"><i style="background:var(--pos)"></i>Marge cumulée</span>
+  </div>
+  <div class="card" style="padding:10px 6px 4px;margin-bottom:22px">
+  <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;font-family:var(--mono);font-size:9px">
+    ${pasY.map(p=>`<line x1="${PL}" x2="${W-PR}" y1="${(PT+(H-PT-PB)*(1-p)).toFixed(1)}" y2="${(PT+(H-PT-PB)*(1-p)).toFixed(1)}" stroke="var(--rule2)"/>
+      <text x="${PL-7}" y="${(PT+(H-PT-PB)*(1-p)+3).toFixed(1)}" text-anchor="end" fill="var(--ink3)">${Math.round(max*p/1000)}k</text>`).join('')}
+    ${S.map(([,v],i)=>v.ca?`<rect x="${(x(i)-bw/2).toFixed(1)}" y="${y(v.ca).toFixed(1)}" width="${bw.toFixed(1)}" height="${(H-PB-y(v.ca)).toFixed(1)}" fill="var(--rule)"/>`:'').join('')}
+    <path d="${aire}" fill="var(--ink)" opacity=".07"/>
+    <path d="${ligne}" fill="none" stroke="var(--ink)" stroke-width="1.6"/>
+    <path d="${ligneCum}" fill="none" stroke="var(--pos)" stroke-width="1.2" stroke-dasharray="4 3"/>
+    ${S.map(([,v],i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(v.cout).toFixed(1)}" r="2.2" fill="var(--ink)"><title>${esc(S[i][0])} · coût ${eur(v.cout)} · CA ${eur(v.ca)} · ${nb(v.heures/8,0)} j</title></circle>`).join('')}
+    ${S.map(([k],i)=>(S.length<=14||i%Math.ceil(S.length/14)===0)?`<text x="${x(i).toFixed(1)}" y="${H-9}" text-anchor="middle" fill="var(--ink3)">${esc(k.replace(/^\d{4}-/,''))}</text>`:'').join('')}
+  </svg></div>`;
+}
+
 /* ══════ rendu ══════ */
 function render(){
   if(!user){$('#view').innerHTML='<div class="empty">Connectez-vous pour accéder aux données de rentabilité.</div>';return;}
@@ -275,6 +363,7 @@ function vueGlobale(){
   ${brut>fact?`<div class="note">Heures saisies : <strong>${nb(brut,0)} h</strong> · retenues pour la
      rentabilité après plafonnement à 8 h/jour : <strong>${nb(fact,0)} h</strong>.
      L'écart de ${nb(brut-fact,0)} h est de la charge réelle non facturée.</div>`:''}
+  ${graphe(rows)}
   ${(()=>{
     const ec=rows.map(r=>({r,d:detail(r.p.id)}))
       .filter(x=>x.d.n>0&&Math.abs(x.d.ecart)>1)
@@ -317,6 +406,7 @@ function vueGlobale(){
         <td class="n">${nb(b.conso.fact/8)}</td>
       </tr>`).join('')||'<tr><td colspan="13" class="empty">Aucun projet.</td></tr>'}
     </tbody></table></div>`;
+  document.querySelectorAll('[data-grain]').forEach(b=>b.onclick=()=>{GRAIN=b.dataset.grain;render();});
   document.querySelectorAll('[data-id]').forEach(tr=>tr.onclick=()=>{sel=tr.dataset.id;render();window.scrollTo(0,0);});
 }
 
