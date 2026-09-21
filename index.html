@@ -124,7 +124,8 @@ function status(t,k){$('#bar').className=k||'';$('#dot').className='dot '+(k||''
 const cls=n=>n==null?'':n<0?'neg':n<30?'warn':'pos';
 
 /* ══════ calculs ══════ */
-const pers=id=>PE.find(p=>p.id===id);
+const arr=v=>Array.isArray(v)?v:Object.values(v||{});
+const pers=id=>arr(PE).find(p=>p.id===id);
 function cjmAt(id,iso){
   const h=((PRIVE.cjm||{})[id]||[]).filter(c=>c.debut&&c.valeur!=null).sort((a,b)=>a.debut<b.debut?-1:1);
   let v=null; for(const c of h) if(c.debut<=iso) v=c.valeur;
@@ -480,11 +481,14 @@ function vueProjet(){
             ||'<tr><td colspan="3" class="mut" style="padding:9px 10px">Aucun temps direction renseigné.</td></tr>'}
           </tbody></table></div>
         <div class="card" style="margin-top:7px"><table><tbody>
-        ${PE.filter(x=>!x.archive&&x.categorie==='direction').map(x=>`<tr>
-          <td>Ajouter — ${esc(x.nom)}</td>
-          <td style="width:110px"><input class="n" data-dir="${esc(x.id)}" value="${(b.dir.detail||{})[x.id]??''}" placeholder="jours" style="width:100%;text-align:right"></td>
-          <td class="n mut" style="width:100px">${eur(cjmAt(x.id,new Date().toISOString().slice(0,10)))}/j</td>
-        </tr>`).join('')}
+        ${(()=>{const dir=arr(PE).filter(x=>x.categorie==='direction');
+          if(!dir.length) return `<tr><td class="mut" style="padding:9px 10px">Aucune personne en catégorie « direction » dans le référentiel.</td></tr>`;
+          return dir.map(x=>`<tr>
+            <td>Ajouter — ${esc(x.nom)}</td>
+            <td style="width:120px"><input class="n" data-dir="${esc(x.id)}" value="${(b.dir.detail||{})[x.id]??''}" placeholder="jours" style="width:100%;text-align:right"></td>
+            <td class="n mut" style="width:100px">${eur(cjmAt(x.id,new Date().toISOString().slice(0,10)))}/j</td>
+            <td class="n mut" style="width:110px" data-dirout="${esc(x.id)}">${eur(((b.dir.detail||{})[x.id]||0)*(cjmAt(x.id,new Date().toISOString().slice(0,10))||0))}</td>
+          </tr>`).join('');})()}
         </tbody></table></div>
       </div>
 
@@ -551,12 +555,21 @@ function vueProjet(){
          status('Source de coût : '+sr.value,'ok'); }
     catch(e){ status('Non enregistré : '+e.message,'err'); }
   };
-  document.querySelectorAll('[data-dir]').forEach(el=>el.onchange=async()=>{
-    const v=el.value.trim().replace(',','.');
+  document.querySelectorAll('[data-dir]').forEach(el=>{
+    el.onfocus=()=>el.select();
+    el.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();el.blur();} };
+    el.onchange=async()=>{
+    const raw=el.value.trim().replace(',','.');
+    const v=raw===''?null:parseFloat(raw);
+    if(raw!==''&&(isNaN(v)||v<0||v>500)){el.value='';status('Saisissez un nombre de jours entre 0 et 500.','err');return;}
     try{
-      await set(ref(db,`${ROOT}/prive/direction/${sel}/${el.dataset.dir}`), v===''?null:parseFloat(v)||null);
-      status('Temps direction enregistré','ok');
+      await set(ref(db,`${ROOT}/prive/direction/${sel}/${el.dataset.dir}`), v);
+      const c=cjmAt(el.dataset.dir,new Date().toISOString().slice(0,10))||0;
+      const out=document.querySelector(`[data-dirout="${CSS.escape(el.dataset.dir)}"]`);
+      if(out) out.textContent=eur((v||0)*c);
+      status(`${(pers(el.dataset.dir)||{}).nom||''} : ${v??0} j enregistré`,'ok');
     }catch(e){status('Non enregistré : '+e.message,'err');}
+    };
   });
 }
 
@@ -573,7 +586,7 @@ onAuthStateChanged(auth,u=>{
   if(!u){status('Connectez-vous pour voir les données de rentabilité.','');render();return;}
   status('Chargement…','');
   pull('projects',v=>P=v||{});
-  pull('people',v=>PE=v||[]);
+  pull('people',v=>PE=Array.isArray(v)?v:Object.values(v||{}));
   pull('time',v=>T=v||{});
   pull('prive',v=>{PRIVE=v||{};status('Connecté · '+u.email,'ok');});
 });
