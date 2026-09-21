@@ -104,13 +104,6 @@ const CFG={apiKey:"AIzaSyByf4SmnGJvfkkJVFhfINXikb8I8ge5VRU",
   projectId:"matiere-noire-todo",storageBucket:"matiere-noire-todo.firebasestorage.app",
   messagingSenderId:"583651643354",appId:"1:583651643354:web:74b78c43316b9d657dfae3"};
 const ROOT='referentiel', RECUP='_recup';
-/* Categories exclues du cout derive du time tracking.
-   overhead   : Baptiste et Sam, absorbes en frais de structure
-   direction  : Felix et Pierre, comptes via prive/couts/<projet>/direction
-   prestataire: Sidney et Sven, comptes via prive/couts/<projet>/externes
-   Sans cette exclusion, une saisie de temps d'une de ces personnes
-   serait comptee DEUX FOIS (constate : PD, 32 h sur bad-gyal, 2520 EUR). */
-const HORS_TT=new Set(['overhead','direction','prestataire']);
 const app=initializeApp(CFG), db=getDatabase(app), auth=getAuth(app);
 
 /* ══════ règles métier — voir DECISIONS.md ══════ */
@@ -131,7 +124,8 @@ function status(t,k){$('#bar').className=k||'';$('#dot').className='dot '+(k||''
 const cls=n=>n==null?'':n<0?'neg':n<30?'warn':'pos';
 
 /* ══════ calculs ══════ */
-const pers=id=>PE.find(p=>p.id===id);
+const arr=v=>Array.isArray(v)?v:Object.values(v||{});
+const pers=id=>arr(PE).find(p=>p.id===id);
 function cjmAt(id,iso){
   const h=((PRIVE.cjm||{})[id]||[]).filter(c=>c.debut&&c.valeur!=null).sort((a,b)=>a.debut<b.debut?-1:1);
   let v=null; for(const c of h) if(c.debut<=iso) v=c.valeur;
@@ -180,7 +174,7 @@ function conso(pid){
   const par={}; let brut=0, fact=0, cout=0;
   Object.entries(T).forEach(([mois,gens])=>Object.entries(gens).forEach(([uid,projs])=>{
     const jours=projs[pid]; if(!jours)return;
-    const p=pers(uid); if(!p||HORS_TT.has(p.categorie))return;   // cf. HORS_TT : pas de double comptage
+    const p=pers(uid); if(!p||p.categorie==='overhead')return;   // Baptiste et Sam hors marge projet
     Object.entries(jours).forEach(([j,h])=>{
       const iso=`${mois}-${String(j).padStart(2,'0')}`;
       const cap=CAPPES.has(contratAt(p,iso));
@@ -263,7 +257,7 @@ function serie(idsProjets){
   const S={};
   const add=(k,champ,v)=>{ (S[k]=S[k]||{cout:0,heures:0,ca:0})[champ]+=v; };
   Object.entries(T).forEach(([mois,gens])=>Object.entries(gens).forEach(([uid,projs])=>{
-    const p=pers(uid); if(!p||HORS_TT.has(p.categorie))return;
+    const p=pers(uid); if(!p||p.categorie==='overhead')return;
     Object.entries(projs).forEach(([pid,jours])=>{
       if(idsProjets&&!idsProjets.has(pid))return;
       Object.entries(jours).forEach(([j,hh])=>{
@@ -487,11 +481,14 @@ function vueProjet(){
             ||'<tr><td colspan="3" class="mut" style="padding:9px 10px">Aucun temps direction renseigné.</td></tr>'}
           </tbody></table></div>
         <div class="card" style="margin-top:7px"><table><tbody>
-        ${PE.filter(x=>!x.archive&&x.categorie==='direction').map(x=>`<tr>
-          <td>Ajouter — ${esc(x.nom)}</td>
-          <td style="width:110px"><input class="n" data-dir="${esc(x.id)}" value="${(b.dir.detail||{})[x.id]??''}" placeholder="jours" style="width:100%;text-align:right"></td>
-          <td class="n mut" style="width:100px">${eur(cjmAt(x.id,new Date().toISOString().slice(0,10)))}/j</td>
-        </tr>`).join('')}
+        ${(()=>{const dir=arr(PE).filter(x=>x.categorie==='direction');
+          if(!dir.length) return `<tr><td class="mut" style="padding:9px 10px">Aucune personne en catégorie « direction » dans le référentiel.</td></tr>`;
+          return dir.map(x=>`<tr>
+            <td>Ajouter — ${esc(x.nom)}</td>
+            <td style="width:120px"><input class="n" data-dir="${esc(x.id)}" value="${(b.dir.detail||{})[x.id]??''}" placeholder="jours" style="width:100%;text-align:right"></td>
+            <td class="n mut" style="width:100px">${eur(cjmAt(x.id,new Date().toISOString().slice(0,10)))}/j</td>
+            <td class="n mut" style="width:110px" data-dirout="${esc(x.id)}">${eur(((b.dir.detail||{})[x.id]||0)*(cjmAt(x.id,new Date().toISOString().slice(0,10))||0))}</td>
+          </tr>`).join('');})()}
         </tbody></table></div>
       </div>
 
@@ -558,12 +555,21 @@ function vueProjet(){
          status('Source de coût : '+sr.value,'ok'); }
     catch(e){ status('Non enregistré : '+e.message,'err'); }
   };
-  document.querySelectorAll('[data-dir]').forEach(el=>el.onchange=async()=>{
-    const v=el.value.trim().replace(',','.');
+  document.querySelectorAll('[data-dir]').forEach(el=>{
+    el.onfocus=()=>el.select();
+    el.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();el.blur();} };
+    el.onchange=async()=>{
+    const raw=el.value.trim().replace(',','.');
+    const v=raw===''?null:parseFloat(raw);
+    if(raw!==''&&(isNaN(v)||v<0||v>500)){el.value='';status('Saisissez un nombre de jours entre 0 et 500.','err');return;}
     try{
-      await set(ref(db,`${ROOT}/prive/direction/${sel}/${el.dataset.dir}`), v===''?null:parseFloat(v)||null);
-      status('Temps direction enregistré','ok');
+      await set(ref(db,`${ROOT}/prive/direction/${sel}/${el.dataset.dir}`), v);
+      const c=cjmAt(el.dataset.dir,new Date().toISOString().slice(0,10))||0;
+      const out=document.querySelector(`[data-dirout="${CSS.escape(el.dataset.dir)}"]`);
+      if(out) out.textContent=eur((v||0)*c);
+      status(`${(pers(el.dataset.dir)||{}).nom||''} : ${v??0} j enregistré`,'ok');
     }catch(e){status('Non enregistré : '+e.message,'err');}
+    };
   });
 }
 
@@ -580,7 +586,7 @@ onAuthStateChanged(auth,u=>{
   if(!u){status('Connectez-vous pour voir les données de rentabilité.','');render();return;}
   status('Chargement…','');
   pull('projects',v=>P=v||{});
-  pull('people',v=>PE=v||[]);
+  pull('people',v=>PE=Array.isArray(v)?v:Object.values(v||{}));
   pull('time',v=>T=v||{});
   pull('prive',v=>{PRIVE=v||{};status('Connecté · '+u.email,'ok');});
 });
