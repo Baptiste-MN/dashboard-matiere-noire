@@ -356,7 +356,8 @@ function vueGlobale(){
     <div>Coût total<span>${eur(cout)}</span></div>
     <div>Marge brute<span class="${cls(ca?marge/ca*100:null)}">${eur(marge)}</span></div>
     <div>Taux<span class="${cls(ca?marge/ca*100:null)}">${pct(ca?marge/ca*100:null)}</span></div>
-    <div>Jours consommés<span>${nb(fact/8,0)}</span></div>
+    <div>Jours saisis<span>${nb(brut/8,0)}</span></div>
+    <div>Jours retenus<span>${nb(fact/8,0)}</span></div>
     <div>Projets comparables<span>${fiables.length} / ${rows.length}</span></div>
   </div>
   <div class="note"><strong>Marge brute de production</strong> — elle ne déduit ni les frais de structure
@@ -400,7 +401,9 @@ function vueGlobale(){
   <div class="card"><table>
     <thead><tr><th>Projet</th><th>Client</th><th>Statut</th>
       <th class="n">CA signé</th><th class="n">Salariés</th><th class="n">Direction</th><th class="n">Externes</th><th class="n">Coût total</th><th class="n">Marge</th>
-      <th class="n">Taux</th><th style="width:90px">&nbsp;</th><th class="n">Jours</th></tr></thead>
+      <th class="n">Taux</th><th style="width:90px">&nbsp;</th>
+      <th class="n" title="Jours retenus pour la rentabilité">Jours</th>
+      <th class="n" title="Jours réellement saisis, si différent">dont saisis</th></tr></thead>
     <tbody>${rows.map(({p,b})=>`
       <tr class="clik" data-id="${esc(p.id)}">
         <td>${esc(p.nom)}${p.proBono?'<span class="tag">pro bono</span>':''}${
@@ -419,7 +422,8 @@ function vueGlobale(){
         <td class="n ${b.fiab==='ok'?cls(b.tx):'mut'}">${b.fiab==='ok'?pct(b.tx):'—'}</td>
         <td>${(b.tx==null||b.fiab!=='ok')?'':`<div class="bar"><i style="width:${Math.max(0,Math.min(100,b.tx))}%;background:var(--${b.tx<0?'neg':b.tx<30?'warn':'pos'})"></i></div>`}</td>
         <td class="n">${nb(b.conso.fact/8)}</td>
-      </tr>`).join('')||'<tr><td colspan="13" class="empty">Aucun projet.</td></tr>'}
+        <td class="n mut">${b.conso.brut!==b.conso.fact?nb(b.conso.brut/8):''}</td>
+      </tr>`).join('')||'<tr><td colspan="14" class="empty">Aucun projet.</td></tr>'}
     </tbody></table></div>`;
   document.querySelectorAll('[data-grain]').forEach(b=>b.onclick=()=>{GRAIN=b.dataset.grain;render();});
   document.querySelectorAll('[data-id]').forEach(tr=>tr.onclick=()=>{sel=tr.dataset.id;render();window.scrollTo(0,0);});
@@ -441,7 +445,9 @@ function vueProjet(){
     <div>Marge<span class="${cls(b.tx)}">${b.marge==null?'—':eur(b.marge)}</span></div>
     <div>Taux<span class="${cls(b.tx)}">${pct(b.tx)}</span></div>
     <div>Jours vendus<span>${jv?nb(jv):'—'}</span></div>
-    <div>Jours consommés<span>${nb(b.conso.fact/8)}</span></div>
+    <div>Jours saisis<span>${nb(b.conso.brut/8)}</span></div>
+    <div>Jours retenus<span>${nb(b.conso.fact/8)}</span></div>
+    ${jv?`<div>Écart vendu / retenu<span class="${b.conso.fact/8>jv?'neg':'pos'}">${b.conso.fact/8>jv?'+':''}${nb(b.conso.fact/8-jv)}</span></div>`:''}
   </div>
 
   <div class="grid2">
@@ -461,17 +467,34 @@ function vueProjet(){
     <div>
       <h2>Consommé par personne</h2>
       <div class="card"><table>
-        <thead><tr><th>Personne</th><th>Profil</th><th class="n">Saisi</th><th class="n">Retenu</th><th class="n">CJM</th><th class="n">Coût</th></tr></thead>
+        <thead><tr><th>Personne</th><th>Profil</th>
+          <th class="n">Heures saisies</th><th class="n">Jours saisis</th>
+          <th class="n">Heures retenues</th><th class="n">Jours retenus</th>
+          <th class="n">CJM</th><th class="n">Coût</th></tr></thead>
         <tbody>${b.conso.par.map(x=>{const pp=pers(x.uid)||{};
           const eco=['Stagiaire','Junior'].includes(pp.profil);
           return `<tr><td>${esc(pp.nom||x.uid)}${eco?'<span class="tag b">éco</span>':''}${pp.categorie==='prestataire'?'<span class="tag">presta</span>':''}</td>
             <td class="mut">${esc(pp.profil||'—')}</td>
             <td class="n">${nb(x.brut)} h</td>
+            <td class="n mut">${nb(x.brut/8)}</td>
             <td class="n">${nb(x.fact)} h</td>
+            <td class="n mut">${nb(x.fact/8)}</td>
             <td class="n ${x.manquant?'warn':'mut'}">${x.manquant?'manquant':eur(x.cjm)}</td>
             <td class="n">${eur(x.cout)}</td></tr>`;}).join('')
-          ||'<tr><td colspan="6" class="empty">Aucun temps saisi.</td></tr>'}
-        </tbody></table></div>
+          ||'<tr><td colspan="8" class="empty">Aucun temps saisi.</td></tr>'}
+        </tbody>
+        ${b.conso.par.length?`<tfoot><tr style="border-top:1px solid var(--rule)">
+          <td colspan="2"><strong>Total</strong></td>
+          <td class="n"><strong>${nb(b.conso.brut)} h</strong></td>
+          <td class="n"><strong>${nb(b.conso.brut/8)} j</strong></td>
+          <td class="n"><strong>${nb(b.conso.fact)} h</strong></td>
+          <td class="n"><strong>${nb(b.conso.fact/8)} j</strong></td>
+          <td class="n mut">${b.conso.fact?eur(b.conso.cout/(b.conso.fact/8)):'—'}/j</td>
+          <td class="n"><strong>${eur(b.conso.cout)}</strong></td></tr></tfoot>`:''}
+        </table></div>
+        ${b.conso.brut!==b.conso.fact?`<p class="hint" style="margin:7px 0 0">
+          ${nb((b.conso.brut-b.conso.fact)/8)} jour${(b.conso.brut-b.conso.fact)/8>1?'s':''}
+          de charge au-delà de 8 h/jour, conservés dans l'historique mais hors rentabilité.</p>`:''}
       <div class="sec"><h3>Direction — Félix et Pierre</h3>
         <p class="hint" style="margin:0 0 8px">Temps estimé en fin de projet. Les lignes importées viennent du tableau de bord ; la saisie ci-dessous s'y ajoute.</p>
         <div class="card"><table>
@@ -506,6 +529,7 @@ function vueProjet(){
       <div class="sec"><h3>Récapitulatif</h3>
         <div class="card"><table><tbody>
           <tr><td>Équipe salariée <span class="tag">${esc(b.source)}</span></td><td class="n">${eur(b.interne)}</td></tr>
+          <tr><td class="mut" style="padding-left:22px">${nb(b.conso.brut/8)} jours saisis · ${nb(b.conso.fact/8)} retenus après plafonnement</td><td class="n mut">${nb(b.conso.brut)} h</td></tr>
           ${b.ecart!=null?`<tr><td class="mut" style="padding-left:22px">
             time tracking ${eur(b.tt)} · tableau de bord ${eur(b.xl)} · écart ${b.ecart>0?'+':''}${eur(b.ecart)}</td>
             <td class="n mut">${b.dispoTT&&b.dispoXL?`<select data-src style="width:auto;font-size:12px">
