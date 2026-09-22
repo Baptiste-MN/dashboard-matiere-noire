@@ -61,12 +61,17 @@ tbody tr.clik:hover{background:var(--rule2)}
   text-transform:uppercase;vertical-align:1px}
 .tag.a{border-color:var(--warn);color:var(--warn)}
 .tag.b{border-color:var(--pos);color:var(--pos)}
+table.pers .tag{margin-left:4px}
 
 .bar{height:5px;background:var(--band);border-radius:3px;overflow:hidden;min-width:64px}
 .bar i{display:block;height:100%}
 .lg{font-family:var(--mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink3);
   display:inline-flex;align-items:center;gap:5px;margin-left:14px}
 .lg i{width:14px;height:3px;border-radius:2px;display:inline-block}
+table.pers{min-width:620px}
+table.pers td,table.pers th{padding:5px 7px;white-space:nowrap}
+table.pers td:first-child{white-space:normal;min-width:120px}
+th.sub{font-size:9px;letter-spacing:.04em;padding-top:0;border-bottom:1px solid var(--rule)}
 .empty{padding:36px;text-align:center;color:var(--ink3)}
 .sec{border-top:1px solid var(--rule2);padding:14px 0 0;margin-top:16px}
 .sec h3{font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink3);margin:0 0 8px;font-weight:600}
@@ -358,7 +363,8 @@ function vueGlobale(){
     <div>Taux<span class="${cls(ca?marge/ca*100:null)}">${pct(ca?marge/ca*100:null)}</span></div>
     <div>Jours saisis<span>${nb(brut/8,0)}</span></div>
     <div>Jours retenus<span>${nb(fact/8,0)}</span></div>
-    <div>Projets comparables<span>${fiables.length} / ${rows.length}</span></div>
+    <div>En cours<span>${rows.filter(r=>r.p.statut==='actif').length}</span></div>
+    <div>Livrés<span>${rows.filter(r=>r.p.statut==='livre').length}</span></div>
   </div>
   <div class="note"><strong>Marge brute de production</strong> — elle ne déduit ni les frais de structure
      (loyer, licences, assurance) ni le temps de Baptiste et Sam, classés en <em>overhead</em>.
@@ -412,7 +418,7 @@ function vueGlobale(){
    b.source==='tableau de bord'?'<span class="tag">coût consolidé</span>':''}${
    (()=>{const x=detail(p.id);return (x.n&&x.couvert<0.9)?'<span class="tag">détail partiel</span>':'';})()}</td>
         <td class="mut">${esc(p.client||'—')}</td>
-        <td class="st">${esc(STATUTS[p.statut]||p.statut)}</td>
+        <td class="st ${p.statut==='actif'?'encours':''}">${esc(STATUTS[p.statut]||p.statut)}</td>
         <td class="n">${b.ca?eur(b.ca):'—'}</td>
         <td class="n mut">${b.interne?eur(b.interne):'—'}</td>
         <td class="n mut">${b.dir.cout?eur(b.dir.cout):'<span class="warn">—</span>'}</td>
@@ -466,18 +472,22 @@ function vueProjet(){
 
     <div>
       <h2>Consommé par personne</h2>
-      <div class="card"><table>
+      <div class="card" style="overflow-x:auto"><table class="pers">
         <thead><tr><th>Personne</th><th>Profil</th>
-          <th class="n">Heures saisies</th><th class="n">Jours saisis</th>
-          <th class="n">Heures retenues</th><th class="n">Jours retenus</th>
-          <th class="n">CJM</th><th class="n">Coût</th></tr></thead>
+          <th class="n" colspan="2">Saisi</th>
+          <th class="n" colspan="2">Retenu</th>
+          <th class="n">CJM</th><th class="n">Coût</th></tr>
+        <tr><th></th><th></th>
+          <th class="n sub">h</th><th class="n sub">j</th>
+          <th class="n sub">h</th><th class="n sub">j</th>
+          <th></th><th></th></tr></thead>
         <tbody>${b.conso.par.map(x=>{const pp=pers(x.uid)||{};
           const eco=['Stagiaire','Junior'].includes(pp.profil);
           return `<tr><td>${esc(pp.nom||x.uid)}${eco?'<span class="tag b">éco</span>':''}${pp.categorie==='prestataire'?'<span class="tag">presta</span>':''}</td>
             <td class="mut">${esc(pp.profil||'—')}</td>
-            <td class="n">${nb(x.brut)} h</td>
+            <td class="n">${nb(x.brut)}</td>
             <td class="n mut">${nb(x.brut/8)}</td>
-            <td class="n">${nb(x.fact)} h</td>
+            <td class="n">${nb(x.fact)}</td>
             <td class="n mut">${nb(x.fact/8)}</td>
             <td class="n ${x.manquant?'warn':'mut'}">${x.manquant?'manquant':eur(x.cjm)}</td>
             <td class="n">${eur(x.cout)}</td></tr>`;}).join('')
@@ -485,10 +495,10 @@ function vueProjet(){
         </tbody>
         ${b.conso.par.length?`<tfoot><tr style="border-top:1px solid var(--rule)">
           <td colspan="2"><strong>Total</strong></td>
-          <td class="n"><strong>${nb(b.conso.brut)} h</strong></td>
-          <td class="n"><strong>${nb(b.conso.brut/8)} j</strong></td>
-          <td class="n"><strong>${nb(b.conso.fact)} h</strong></td>
-          <td class="n"><strong>${nb(b.conso.fact/8)} j</strong></td>
+          <td class="n"><strong>${nb(b.conso.brut)}</strong></td>
+          <td class="n"><strong>${nb(b.conso.brut/8)}</strong></td>
+          <td class="n"><strong>${nb(b.conso.fact)}</strong></td>
+          <td class="n"><strong>${nb(b.conso.fact/8)}</strong></td>
           <td class="n mut">${b.conso.fact?eur(b.conso.cout/(b.conso.fact/8)):'—'}/j</td>
           <td class="n"><strong>${eur(b.conso.cout)}</strong></td></tr></tfoot>`:''}
         </table></div>
